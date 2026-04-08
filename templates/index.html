@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SENTIVISION - Emotion Analysis System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <div class="logo">SENTIVISION</div>
+                <div class="tagline">AI-Powered Emotion Analysis System</div>
+            </div>
+            <div class="header-right">
+                <button class="menu-btn" onclick="openModal('aboutModal')">About</button>
+                <!-- FIX: was openModal('settingsModal') — now calls openSettingsModal() so the
+                     current RTSP URL is loaded from the server before the modal opens -->
+                <button class="menu-btn" onclick="openSettingsModal()">Settings</button>
+                <button class="menu-btn" onclick="openReportsModal()">Reports</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Left Panel - Video Feed -->
+            <div class="left-panel">
+                <div class="video-container">
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot"></span>
+                        <span id="statusText">Stopped</span>
+                    </div>
+                    <img id="videoFeed"
+                         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect width='800' height='600' fill='%23000'/%3E%3Ctext x='50%25' y='50%25' fill='%23666' text-anchor='middle' dy='.3em' font-family='Arial' font-size='24'%3EClick START to begin analysis%3C/text%3E%3C/svg%3E"
+                         alt="Video Feed">
+                </div>
+
+                <div class="controls">
+                    <button class="btn btn-start" id="startBtn" onclick="startAnalysis()">
+                        ▶ Start Analysis
+                    </button>
+                    <button class="btn btn-stop" id="stopBtn" onclick="stopAnalysis()" disabled>
+                        ■ Stop Analysis
+                    </button>
+                </div>
+
+                <div class="info-box">
+                    <h3>📋 System Information</h3>
+                    <p>
+                        This system uses YOLOv8 to detect and track persons in real-time, then applies
+                        deep facial emotion recognition to classify seven emotions:
+                        <strong>Happy</strong>, <strong>Surprise</strong>, <strong>Neutral</strong>,
+                        <strong>Sad</strong>, <strong>Fear</strong>, <strong>Angry</strong>, and
+                        <strong>Disgust</strong>. Non-neutral emotions are grouped into
+                        <strong>Positive</strong> and <strong>Negative</strong> sentiments for analysis.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Right Panel - Sentiment Analysis -->
+            <div class="right-panel">
+                <div class="analysis-panel">
+                    <div class="panel-header">
+                        <span class="icon">📊</span>
+                        <h2>Overall Sentiment Analysis (Real-Time)</h2>
+                    </div>
+
+                    <div class="chart-container">
+                        <canvas id="sentimentChart"></canvas>
+                    </div>
+
+                    <div class="sentiment-stats">
+                        <div class="stat-card positive">
+                            <div class="stat-label">Positive</div>
+                            <div class="stat-value" id="positivePercent">0%</div>
+                        </div>
+                        <div class="stat-card negative">
+                            <div class="stat-label">Negative</div>
+                            <div class="stat-value" id="negativePercent">0%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <h5 class="text-center mb-4">Meet the Sentivision Team</h5>
+            <div class="row">
+                <div class="team-member">
+                    <img src="{{ url_for('static', filename='images/vanesse.jpg') }}" alt="Vanesse Reyes">
+                    <h6>Vanesse Reyes</h6>
+                    <p>Lead Developer | UI/UX</p>
+                </div>
+                <div class="team-member">
+                    <img src="{{ url_for('static', filename='images/celrick.jpg') }}" alt="Cel Rick D Almario">
+                    <h6>Cel Rick D Almario</h6>
+                    <p>Backend Developer | Documentation</p>
+                </div>
+                <div class="team-member">
+                    <img src="{{ url_for('static', filename='images/keayon.jpg') }}" alt="Keayon Ivan V Romero">
+                    <h6>Keayon Ivan V Romero</h6>
+                    <p>Quality Assurance | Documentation</p>
+                </div>
+            </div>
+            <p class="text-center mt-4">Developed at Laguna State Polytechnic University Sta. Cruz Campus</p>
+        </div>
+    </footer>
+
+    <!-- About Modal -->
+    <div id="aboutModal" class="modal">
+        <div class="modal-content modal-content-about">
+            <div class="modal-header">
+                <h2>About SENTIVISION</h2>
+                <button class="close-btn" onclick="closeModal('aboutModal')">&times;</button>
+            </div>
+            <div class="modal-body modal-body-about">
+                <div class="about-section">
+                    <h3>Thesis Title</h3>
+                    <p class="thesis-title">
+                        SentiVision: A Web-Based System for Real-Time Customer Emotion and Sentiment Analysis
+                        Using CCTV Camera Feeds in Pila, Laguna Restaurants
+                    </p>
+                </div>
+
+                <div class="about-section">
+                    <h3>Project Overview</h3>
+                    <p>
+                        SentiVision is an AI-powered emotion analysis system designed to help restaurant
+                        owners in Pila, Laguna understand their customers' emotions and sentiments in real-time.
+                        By analyzing CCTV camera feeds, the system provides insights into customer satisfaction,
+                        enabling businesses to improve service quality and customer experience.
+                    </p>
+                </div>
+
+                <div class="about-section">
+                    <h3>Technologies &amp; Tools</h3>
+                    <div class="tech-category">
+                        <h4>Programming Languages</h4>
+                        <div class="tech-tags">
+                            <span class="tech-tag">Python 3.x</span>
+                            <span class="tech-tag">JavaScript (ES6+)</span>
+                            <span class="tech-tag">HTML5</span>
+                            <span class="tech-tag">CSS3</span>
+                            <span class="tech-tag">SQL</span>
+                        </div>
+                    </div>
+                    <div class="tech-category">
+                        <h4>Backend Framework &amp; Libraries</h4>
+                        <div class="tech-tags">
+                            <span class="tech-tag">Flask</span>
+                            <span class="tech-tag">OpenCV (cv2)</span>
+                            <span class="tech-tag">Ultralytics YOLO</span>
+                            <span class="tech-tag">DeepFace</span>
+                            <span class="tech-tag">NumPy</span>
+                            <span class="tech-tag">SQLite3</span>
+                        </div>
+                    </div>
+                    <div class="tech-category">
+                        <h4>Frontend Libraries</h4>
+                        <div class="tech-tags">
+                            <span class="tech-tag">Chart.js</span>
+                            <span class="tech-tag">Vanilla JavaScript</span>
+                        </div>
+                    </div>
+                    <div class="tech-category">
+                        <h4>AI/ML Models</h4>
+                        <div class="tech-tags">
+                            <span class="tech-tag">YOLOv8n (Person Detection)</span>
+                            <span class="tech-tag">FaceDetectorYN (Face Detection)</span>
+                            <span class="tech-tag">DeepFace (Emotion Recognition)</span>
+                        </div>
+                    </div>
+                    <div class="tech-category">
+                        <h4>Development Tools</h4>
+                        <div class="tech-tags">
+                            <span class="tech-tag">Git</span>
+                            <span class="tech-tag">VS Code</span>
+                            <span class="tech-tag">RTSP Protocol</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-section">
+                    <h3>Key Features</h3>
+                    <ul class="features-list">
+                        <li><strong>Real-Time Analysis:</strong> Processes CCTV feeds with minimal latency</li>
+                        <li><strong>Seven Emotion Detection:</strong> Happy, Sad, Angry, Fear, Surprise, Disgust, Neutral</li>
+                        <li><strong>Binary Sentiment Classification:</strong> Positive and Negative grouping</li>
+                        <li><strong>Multi-Person Tracking:</strong> Persistent customer IDs via YOLO tracking</li>
+                        <li><strong>Comprehensive Reports:</strong> Detailed analytics, per-person breakdown, PDF export</li>
+                        <li><strong>Database Storage:</strong> SQLite with WAL mode for concurrent access</li>
+                        <li><strong>Visual Dashboard:</strong> Interactive charts for easy interpretation</li>
+                    </ul>
+                </div>
+
+                <div class="about-section">
+                    <h3>Development Team</h3>
+                    <div class="team-grid">
+                        <div class="team-card">
+                            <div class="team-avatar">
+                                <img src="{{ url_for('static', filename='images/vanesse.jpg') }}" alt="Vanesse Reyes">
+                            </div>
+                            <h5>Vanesse Reyes</h5>
+                            <p class="team-role">Lead Developer | UI/UX Designer</p>
+                            <p class="team-desc">Frontend development, user interface design, and user experience optimization</p>
+                        </div>
+                        <div class="team-card">
+                            <div class="team-avatar">
+                                <img src="{{ url_for('static', filename='images/celrick.jpg') }}" alt="Cel Rick D Almario">
+                            </div>
+                            <h5>Cel Rick D Almario</h5>
+                            <p class="team-role">Backend Developer | Documentation</p>
+                            <p class="team-desc">Backend architecture, API development, database design, and technical documentation</p>
+                        </div>
+                        <div class="team-card">
+                            <div class="team-avatar">
+                                <img src="{{ url_for('static', filename='images/keayon.jpg') }}" alt="Keayon Ivan V Romero">
+                            </div>
+                            <h5>Keayon Ivan V Romero</h5>
+                            <p class="team-role">Quality Assurance | Documentation</p>
+                            <p class="team-desc">Testing, quality control, bug tracking, and documentation management</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-section">
+                    <h3>Institution</h3>
+                    <p class="institution-name">Laguna State Polytechnic University</p>
+                    <p class="campus-name">Sta. Cruz Campus</p>
+                    <p class="location">Sta. Cruz, Laguna, Philippines</p>
+                </div>
+
+                <div class="about-section">
+                    <h3>Project Information</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>Academic Year:</strong>
+                            <span>2025–2026</span>
+                        </div>
+                        <div class="info-item">
+                            <strong>Status:</strong>
+                            <span class="status-badge">In Development</span>
+                        </div>
+                        <div class="info-item">
+                            <strong>Target Location:</strong>
+                            <span>Pila, Laguna Restaurants</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-footer">
+                    <p>© 2024–2025 SentiVision Team. All rights reserved.</p>
+                    <p class="disclaimer">Developed for research and educational purposes as part of a thesis requirement.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚙️ Settings</h2>
+                <button class="close-btn" onclick="closeModal('settingsModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h3>📹 Camera Configuration</h3>
+                    <p class="settings-description">
+                        Configure your RTSP camera stream URL. Stop analysis before changing settings.
+                        The URL is loaded from the server on each open so it always reflects the current value.
+                    </p>
+                    <div class="form-group">
+                        <label for="rtspUrl">RTSP Stream URL</label>
+                        <input type="text" id="rtspUrl" class="form-input"
+                               placeholder="rtsp://username:password@ip:port/profile0"
+                               value="">
+                        <small class="form-hint">Format: rtsp://username:password@ip:port/path</small>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-save" onclick="saveCameraSettings()">💾 Save Settings</button>
+                        <button class="btn btn-reset" onclick="resetCameraSettings()">🔄 Reload from Server</button>
+                    </div>
+                    <div id="settingsStatus" class="settings-status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reports Modal -->
+    <div id="reportsModal" class="modal modal-large">
+        <div class="modal-content modal-content-large">
+            <div class="modal-header">
+                <h2>📊 Analysis Reports</h2>
+                <button class="close-btn" onclick="closeModal('reportsModal')">&times;</button>
+            </div>
+            <div class="modal-body-reports">
+                <!-- Left Sidebar - Sessions List -->
+                <div class="reports-sidebar">
+                    <div class="sidebar-header">
+                        <h3>Analysis Sessions</h3>
+                        <button class="btn-refresh" onclick="loadSessions()" title="Refresh">🔄</button>
+                    </div>
+                    <div class="sessions-list" id="sessionsList">
+                        <div class="loading">Loading sessions…</div>
+                    </div>
+                </div>
+
+                <!-- Right Content - Report Details -->
+                <div class="reports-content">
+                    <div class="reports-header">
+                        <div class="reports-tabs">
+                            <button class="tab-btn active" data-tab="overall"    onclick="switchReportTab('overall')">Overall Sentiment</button>
+                            <button class="tab-btn"        data-tab="trends"     onclick="switchReportTab('trends')">Per-Minute Trends</button>
+                            <button class="tab-btn"        data-tab="top"        onclick="switchReportTab('top')">Top Emotions</button>
+                            <button class="tab-btn"        data-tab="perperson"  onclick="switchReportTab('perperson')">Per Person</button>
+                        </div>
+                        <button class="btn-export" id="exportBtn" onclick="exportReport()" disabled>
+                            📄 Export PDF Report
+                        </button>
+                    </div>
+
+                    <div class="tab-content active" id="overall-tab">
+                        <div id="overallContent" class="report-section">
+                            <p class="empty-state">Select a session from the left to view reports</p>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="realtime-tab">
+                        <div id="realtimeContent" class="report-section">
+                            <p class="empty-state">Select a session from the left to view reports</p>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="trends-tab">
+                        <div id="trendsContent" class="report-section">
+                            <p class="empty-state">Select a session from the left to view reports</p>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="top-tab">
+                        <div id="topContent" class="report-section">
+                            <p class="empty-state">Select a session from the left to view reports</p>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="perperson-tab">
+                        <div id="perPersonContent" class="report-section">
+                            <p class="empty-state">Select a session from the left to view reports</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
