@@ -343,7 +343,8 @@ class DatabaseHandler:
                 '''SELECT person_number,
                           MIN(timestamp) AS first_seen,
                           MAX(timestamp) AS last_seen,
-                          COUNT(*)       AS total
+                          COUNT(*) AS total,
+                          GROUP_CONCAT(emotion, '|') AS emotions_concat
                    FROM person_emotions
                    WHERE session_id = ?
                    GROUP BY person_number
@@ -354,29 +355,21 @@ class DatabaseHandler:
 
         result = []
         for p in persons:
-            pnum  = p['person_number']
+            pnum = p['person_number']
             total = p['total']
             if total == 0:
                 continue
 
-            with self.get_connection() as conn:
-                c = conn.cursor()
-                c.execute(
-                    '''SELECT emotion, COUNT(*) AS count
-                       FROM person_emotions
-                       WHERE session_id = ? AND person_number = ?
-                       GROUP BY emotion ORDER BY count DESC''',
-                    (session_id, pnum)
-                )
-                rows = c.fetchall()
+            emotions_concat = p['emotions_concat'] or ''
+            emotion_counts = {'Happy': 0, 'Surprise': 0, 'Sad': 0, 'Fear': 0, 'Angry': 0, 'Disgust': 0}
+            for em in emotions_concat.split('|'):
+                if em in emotion_counts:
+                    emotion_counts[em] += 1
 
-            emotion_counts = {r['emotion']: r['count'] for r in rows}
-
-            # Duration
             duration_display = "0s"
             try:
-                t1   = _parse_ts(p['first_seen'])
-                t2   = _parse_ts(p['last_seen'])
+                t1 = _parse_ts(p['first_seen'])
+                t2 = _parse_ts(p['last_seen'])
                 secs = int((t2 - t1).total_seconds())
                 mm, ss = divmod(secs, 60)
                 duration_display = f"{mm}m {ss}s" if mm > 0 else f"{ss}s"
@@ -388,29 +381,31 @@ class DatabaseHandler:
             dominant = max(emotion_counts, key=emotion_counts.get) if emotion_counts else 'N/A'
 
             result.append({
-                'person_number':      pnum,
-                'first_seen':         p['first_seen'],
-                'last_seen':          p['last_seen'],
-                'duration':           duration_display,
-                'emotion_counts':     emotion_counts,
-                'total_detections':   total,
-                'dominant_emotion':   dominant,
+                'person_number': pnum,
+                'first_seen': p['first_seen'],
+                'last_seen': p['last_seen'],
+                'duration': duration_display,
+                'emotion_counts': emotion_counts,
+                'total_detections': total,
+                'dominant_emotion': dominant,
                 'positive_percentage': round(positive / total * 100, 1),
                 'negative_percentage': round(negative / total * 100, 1),
             })
 
         return result
 
+    ALLOWED_DELETE_TABLES = {
+        'frame_emotions': 'session_id',
+        'minute_summaries': 'session_id',
+        'overall_stats': 'session_id',
+        'person_emotions': 'session_id',
+        'sessions': 'id',
+    }
+
     def delete_session(self, session_id):
         with self.get_connection() as conn:
             c = conn.cursor()
-            for table, col in [
-                ('frame_emotions',  'session_id'),
-                ('minute_summaries','session_id'),
-                ('overall_stats',   'session_id'),
-                ('person_emotions', 'session_id'),
-                ('sessions',        'id'),
-            ]:
+            for table, col in self.ALLOWED_DELETE_TABLES.items():
                 c.execute(f'DELETE FROM {table} WHERE {col} = ?', (session_id,))
 
 

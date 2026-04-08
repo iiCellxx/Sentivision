@@ -15,11 +15,9 @@
                 <div class="tagline">AI-Powered Emotion Analysis System</div>
             </div>
             <div class="header-right">
-                <button class="menu-btn" onclick="openModal('aboutModal')">About</button>
-                <!-- FIX: was openModal('settingsModal') — now calls openSettingsModal() so the
-                     current RTSP URL is loaded from the server before the modal opens -->
-                <button class="menu-btn" onclick="openSettingsModal()">Settings</button>
-                <button class="menu-btn" onclick="openReportsModal()">Reports</button>
+                <button class="menu-btn" onclick="openModal('aboutModal')" aria-label="Open about dialog">About</button>
+                <button class="menu-btn" onclick="openSettingsModal()" aria-label="Open settings dialog">Settings</button>
+                <button class="menu-btn" onclick="openReportsModal()" aria-label="Open reports dialog">Reports</button>
             </div>
         </div>
 
@@ -27,20 +25,28 @@
             <!-- Left Panel - Video Feed -->
             <div class="left-panel">
                 <div class="video-container">
-                    <div class="status-indicator" id="statusIndicator">
-                        <span class="status-dot"></span>
+                    <div class="status-indicator" id="statusIndicator" role="status" aria-live="polite">
+                        <span class="status-dot" aria-hidden="true"></span>
                         <span id="statusText">Stopped</span>
+                    </div>
+                    <div class="session-timer" id="sessionTimer" role="timer" aria-label="Session duration">
+                        <span class="timer-icon" aria-hidden="true">⏱️</span>
+                        <span class="timer-value" id="timerValue">00:00:00</span>
+                    </div>
+                    <div class="connection-status" id="connectionStatus" role="status" aria-live="polite">
+                        <span class="connection-dot" aria-hidden="true"></span>
+                        <span id="connectionText">Connecting...</span>
                     </div>
                     <img id="videoFeed"
                          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect width='800' height='600' fill='%23000'/%3E%3Ctext x='50%25' y='50%25' fill='%23666' text-anchor='middle' dy='.3em' font-family='Arial' font-size='24'%3EClick START to begin analysis%3C/text%3E%3C/svg%3E"
-                         alt="Video Feed">
+                         alt="Live video feed from CCTV camera" aria-label="Video feed">
                 </div>
 
-                <div class="controls">
-                    <button class="btn btn-start" id="startBtn" onclick="startAnalysis()">
+                <div class="controls" role="group" aria-label="Analysis controls">
+                    <button class="btn btn-start" id="startBtn" onclick="startAnalysis()" aria-label="Start emotion analysis">
                         ▶ Start Analysis
                     </button>
-                    <button class="btn btn-stop" id="stopBtn" onclick="stopAnalysis()" disabled>
+                    <button class="btn btn-stop" id="stopBtn" onclick="stopAnalysis()" disabled aria-label="Stop emotion analysis">
                         ■ Stop Analysis
                     </button>
                 </div>
@@ -278,8 +284,9 @@
                         <label for="rtspUrl">RTSP Stream URL</label>
                         <input type="text" id="rtspUrl" class="form-input"
                                placeholder="rtsp://username:password@ip:port/profile0"
-                               value="">
-                        <small class="form-hint">Format: rtsp://username:password@ip:port/path</small>
+                               value="" aria-describedby="rtspHint">
+                        <small class="form-hint" id="rtspHint">Format: rtsp://username:password@ip:port/path</small>
+                        <span class="form-error-inline" id="rtspError"></span>
                     </div>
                     <div class="form-actions">
                         <button class="btn btn-save" onclick="saveCameraSettings()">💾 Save Settings</button>

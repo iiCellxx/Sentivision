@@ -6,6 +6,8 @@ Professional, multi-page analytical report built with ReportLab + Matplotlib.
 from __future__ import annotations
 
 import io
+import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -25,18 +27,34 @@ from reportlab.platypus import (
     Image, PageBreak, HRFlowable, NextPageTemplate,
 )
 from reportlab.pdfgen import canvas as rl_canvas
+from utils import track_id_to_alias
 
-# ── Track-ID → 3-letter alias (mirrors app.py logic) ──────────────────────────
-_ID_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'   # 23 chars, no I/O/W
+logger = logging.getLogger(__name__)
 
-def _track_id_to_alias(tid: int) -> str:
-    base = len(_ID_LETTERS)
-    i    = max(0, tid - 1)
-    return (
-        _ID_LETTERS[(i // (base * base)) % base] +
-        _ID_LETTERS[(i // base) % base] +
-        _ID_LETTERS[i % base]
-    )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuration - Centralized settings
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class ReportConfig:
+    institution: str = 'Laguna State Polytechnic University'
+    campus: str = 'Sta. Cruz Campus'
+    country: str = 'Philippines'
+    authors: tuple = ('Vanesse Reyes', 'Cel Rick D. Almario', 'Keayon Ivan V. Romero')
+    app_name: str = 'SENTIVISION'
+    tagline: str = 'Real-Time Customer Emotion & Sentiment Analysis System'
+
+    @property
+    def institution_line(self) -> str:
+        return f'  \u2022  '.join([self.institution, self.campus, self.country])
+
+    @property
+    def authors_line(self) -> str:
+        return f'  \u2022  '.join(self.authors)
+
+
+CONFIG = ReportConfig()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Brand palette
@@ -70,6 +88,7 @@ MARGIN_INNER  = 18 * mm
 BODY_W        = PW - MARGIN_OUTER - MARGIN_INNER
 COL_GAP       = 6 * mm
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Matplotlib global style
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,13 +111,15 @@ plt.rcParams.update({
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Datetime parser
+# Datetime parser (shared utility)
 # ─────────────────────────────────────────────────────────────────────────────
 def _parse_dt(value: str) -> datetime:
+    if isinstance(value, datetime):
+        return value
     for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
         try:
             return datetime.strptime(value, fmt)
-        except ValueError:
+        except (ValueError, TypeError):
             continue
     raise ValueError(f"Cannot parse datetime: {value!r}")
 
@@ -180,13 +201,12 @@ def _draw_cover(c: rl_canvas.Canvas, report_data: dict) -> None:
     logo_y = PH - 28 * mm
     c.setFont('Helvetica-Bold', 30)
     c.setFillColor(C_WHITE)
-    c.drawString(18 * mm, logo_y, 'SENTI')
+    c.drawString(18 * mm, logo_y, CONFIG.app_name[:5])
     c.setFillColor(C_GREEN)
-    c.drawString(18 * mm + 75, logo_y, 'VISION')
+    c.drawString(18 * mm + 75, logo_y, CONFIG.app_name[5:])
     c.setFont('Helvetica', 8.5)
     c.setFillColor(colors.HexColor('#a0aec0'))
-    c.drawString(18 * mm, logo_y - 6 * mm,
-                 'Real-Time Customer Emotion & Sentiment Analysis System')
+    c.drawString(18 * mm, logo_y - 6 * mm, CONFIG.tagline)
 
     # ── Main title ────────────────────────────────────────────────────────────
     c.setFont('Helvetica-Bold', 36)
@@ -257,12 +277,10 @@ def _draw_cover(c: rl_canvas.Canvas, report_data: dict) -> None:
     # ── Institution ───────────────────────────────────────────────────────────
     c.setFont('Helvetica', 7.5)
     c.setFillColor(C_MUTED)
-    c.drawCentredString(PW / 2, 14 * mm,
-        'Laguna State Polytechnic University  \u2022  Sta. Cruz Campus  \u2022  Philippines')
+    c.drawCentredString(PW / 2, 14 * mm, CONFIG.institution_line)
     c.setFont('Helvetica-Bold', 7.5)
     c.setFillColor(C_GREEN)
-    c.drawCentredString(PW / 2, 10 * mm,
-        'Vanesse Reyes  \u2022  Cel Rick D. Almario  \u2022  Keayon Ivan V. Romero')
+    c.drawCentredString(PW / 2, 10 * mm, CONFIG.authors_line)
 
 
 class _CoverFlowable(Flowable):
@@ -272,7 +290,7 @@ class _CoverFlowable(Flowable):
         self.width  = PW
         self.height = PH
 
-    def wrap(self, aw, ah):
+    def wrap(self, aW, aH):
         return (PW, PH)
 
     def draw(self):
@@ -290,17 +308,32 @@ def _buf_to_img(buf: io.BytesIO, w: float, h: float) -> Image:
 def _chart_sentiment_donut(stats: dict) -> io.BytesIO:
     pos = stats.get('positive_percentage', 0)
     neg = stats.get('negative_percentage', 0)
+    
+    # Handle case where both are 0
+    if pos == 0 and neg == 0:
+        pos, neg = 50, 50  # Show balanced for empty data
+    
     fig, ax = plt.subplots(figsize=(4.2, 3.2))
-    wedges, _, autotexts = ax.pie(
-        [pos, neg],
-        labels=['Positive', 'Negative'],
-        colors=['#22c55e', '#ef4444'],
-        autopct='%1.1f%%',
-        startangle=90,
-        pctdistance=0.72,
-        wedgeprops=dict(width=0.52, edgecolor='white', linewidth=2),
-        textprops={'fontsize': 9, 'color': '#2d3748'},
-    )
+    try:
+        result = ax.pie(
+            [pos, neg],
+            labels=['Positive', 'Negative'],
+            colors=['#22c55e', '#ef4444'],
+            autopct='%1.1f%%',
+            startangle=90,
+            pctdistance=0.72,
+            wedgeprops=dict(width=0.52, edgecolor='white', linewidth=2),
+            textprops={'fontsize': 9, 'color': '#2d3748'},
+        )
+        # Handle different matplotlib versions - may return 2 or 3 values
+        if len(result) >= 3:
+            _, _, autotexts = result
+        else:
+            _, autotexts = result
+    except Exception as e:
+        logger.warning(f"Chart pie error: {e}")
+        autotexts = []
+    
     for at in autotexts:
         at.set_fontsize(9)
         at.set_fontweight('bold')
@@ -347,7 +380,7 @@ def _chart_emotion_bars(top_emotions: list) -> io.BytesIO:
 def _chart_per_person(per_person: list) -> Optional[io.BytesIO]:
     if not per_person:
         return None
-    labels   = [_track_id_to_alias(p["person_number"]) for p in per_person]
+    labels   = [track_id_to_alias(p["person_number"]) for p in per_person]
     pos_vals = [p['positive_percentage'] for p in per_person]
     neg_vals = [p['negative_percentage'] for p in per_person]
     x = np.arange(len(labels))
@@ -577,7 +610,7 @@ class ReportGenerator:
             dom = p.get('dominant_emotion', '\u2013')
             dc  = colors.HexColor(EMOTION_HEX.get(dom, '#27ae60'))
             dur = p.get('duration', '\u2013')
-            alias = _track_id_to_alias(p['person_number'])
+            alias = track_id_to_alias(p['person_number'])
             
             # Format timestamps to time-only for the table to ensure they fit nicely
             def format_table_time(ts_str):
@@ -806,9 +839,8 @@ class ReportGenerator:
             'analysis using CCTV camera feeds, developed for restaurants in Pila, Laguna. '
             'It combines YOLOv8 person detection with deep facial emotion recognition to '
             'deliver actionable session-level analytics. '
-            'Developed by <b>Vanesse Reyes</b>, <b>Cel Rick D. Almario</b>, and '
-            '<b>Keayon Ivan V. Romero</b> at Laguna State Polytechnic University, '
-            'Sta. Cruz Campus.',
+            f'Developed by <b>{"</b> <b>".join(CONFIG.authors)}</b> at {CONFIG.institution}, '
+            f'{CONFIG.campus}.',
             S['BodySmall']
         ))
 

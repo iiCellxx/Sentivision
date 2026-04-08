@@ -11,6 +11,7 @@ from ultralytics import YOLO
 from deepface import DeepFace
 from db import DatabaseHandler
 from report import ReportGenerator
+from utils import track_id_to_alias
 
 app = Flask(__name__)
 
@@ -25,19 +26,32 @@ MODELS_DIR        = "models"
 PERSON_MODEL_PATH = os.path.join(MODELS_DIR, "yolov8n.pt")
 FACE_MODEL_PATH   = os.path.join(MODELS_DIR, "fer2013.onnx")
 
-# ── Load models ────────────────────────────────────────────────────────────────
-person_model = YOLO(PERSON_MODEL_PATH)
-face_detector = cv2.FaceDetectorYN.create(FACE_MODEL_PATH, "", (320, 320), 0.9, 0.3, 5000)
-# Per-thread face detector to avoid setInputSize race conditions
-_fd_local = threading.local()
+# ── Model validation ─────────────────────────────────────────────────────────
+def _validate_models():
+    missing = []
+    for path in [PERSON_MODEL_PATH, FACE_MODEL_PATH]:
+        if not os.path.exists(path):
+            missing.append(path)
+    if missing:
+        raise FileNotFoundError(f"Missing model(s): {', '.join(missing)}")
+    print(f"[models] All models validated successfully")
+
+# ── Lazy model loading ───────────────────────────────────────────────────────
+_person_model = None
+_face_detector = None
+
+def get_person_model():
+    global _person_model
+    if _person_model is None:
+        _person_model = YOLO(PERSON_MODEL_PATH)
+    return _person_model
 
 def get_face_detector():
     """Return a thread-local FaceDetectorYN instance."""
-    if not hasattr(_fd_local, "detector"):
-        _fd_local.detector = cv2.FaceDetectorYN.create(
-            FACE_MODEL_PATH, "", (320, 320), 0.9, 0.3, 5000
-        )
-    return _fd_local.detector
+    global _face_detector
+    if _face_detector is None:
+        _face_detector = cv2.FaceDetectorYN.create(FACE_MODEL_PATH, "", (320, 320), 0.9, 0.3, 5000)
+    return _face_detector
 
 # ── Database ───────────────────────────────────────────────────────────────────
 db = DatabaseHandler()
@@ -72,18 +86,6 @@ EMOTION_MAP = {
     'angry': 'Angry', 'disgust': 'Disgust', 'fear': 'Fear',
     'happy': 'Happy', 'sad': 'Sad', 'surprise': 'Surprise'
 }
-
-# ── Track-ID → 3-letter alias ──────────────────────────────────────────────────
-_ID_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'   # 23 chars (no I/O/W to avoid confusion)
-
-def track_id_to_alias(tid: int) -> str:
-    """Convert a numeric tracker ID to a stable 3-letter code, e.g. 1 → 'AAB'."""
-    base = len(_ID_LETTERS)
-    tid  = max(0, tid - 1)          # make 0-indexed
-    c0   = _ID_LETTERS[(tid // (base * base)) % base]
-    c1   = _ID_LETTERS[(tid // base) % base]
-    c2   = _ID_LETTERS[tid % base]
-    return f"{c0}{c1}{c2}"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -211,7 +213,7 @@ def generate():
             session_id = get_session()
 
             # ── Person detection & tracking ────────────────────────────────────
-            person_results = person_model.track(
+            person_results = get_person_model().track(
                 frame, persist=True, conf=0.5, classes=[0], verbose=False
             )[0]
 
@@ -481,6 +483,7 @@ def api_export_pdf(session_id):
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
+    _validate_models()
     threading.Thread(target=capture_frames,  daemon=True, name="capture").start()
     threading.Thread(target=deepface_worker, daemon=True, name="deepface").start()
     app.run(host='0.0.0.0', port=5000, threaded=True)

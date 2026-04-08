@@ -10,6 +10,14 @@ let selectedSessionId      = null;
 // Polling controller – cancelled on stop to prevent stale callbacks
 let _pollController = null;
 
+// Session timer
+let _sessionStartTime = null;
+let _sessionTimerInterval = null;
+
+// Connection status tracking
+let _connectionState = 'disconnected';
+let _connectionRetryCount = 0;
+
 // Default RTSP URL shown only as placeholder (real value fetched from server)
 const DEFAULT_RTSP_PLACEHOLDER = "rtsp://user:password@ip:port/profile0";
 
@@ -31,6 +39,14 @@ const emotionColors = {
     Angry:'#FF0000', Disgust:'#008000', Fear:'#800080',
     Happy:'#FFFF00', Sad:'#0000FF',    Surprise:'#FFA500'
 };
+
+// ── Sanitization helper ─────────────────────────────────────────────────────────
+function sanitizeHTML(str) {
+    if (str == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
 
 // ── Chart init ────────────────────────────────────────────────────────────────
 function initChart() {
@@ -86,10 +102,15 @@ function updateSentimentAnalysis() {
 
 // ── Analysis start / stop ─────────────────────────────────────────────────────
 function startAnalysis() {
+    // Show connecting state
+    setConnectionStatus('connecting');
+    
     fetch('/start')
         .then(r => r.json())
         .then(() => {
             isAnalyzing = true;
+            _sessionStartTime = Date.now();
+            startSessionTimer();
             document.getElementById('videoFeed').src = '/video?' + Date.now();
             document.getElementById('startBtn').disabled = true;
             document.getElementById('stopBtn').disabled  = false;
@@ -99,15 +120,24 @@ function startAnalysis() {
                 sentimentChart.data.datasets[0].data = [0, 0];
                 sentimentChart.update('none');
             }
+            // After a short delay, check if video is loading
+            setTimeout(() => {
+                setConnectionStatus('connected');
+            }, 2000);
             startPolling();
         })
-        .catch(() => showToast('Failed to start analysis', 'error'));
+        .catch(() => {
+            setConnectionStatus('disconnected');
+            showToast('Failed to start analysis', 'error');
+        });
 }
 
 function stopAnalysis() {
     // Cancel any in-flight poll immediately
     if (_pollController) { _pollController.abort(); _pollController = null; }
+    if (_sessionTimerInterval) { clearInterval(_sessionTimerInterval); _sessionTimerInterval = null; }
     isAnalyzing = false;
+    _sessionStartTime = null;
 
     fetch('/stop')
         .then(r => r.json())
@@ -116,6 +146,9 @@ function stopAnalysis() {
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled  = true;
             updateStatus(false);
+            setConnectionStatus('disconnected');
+            document.getElementById('sessionTimer').classList.remove('active');
+            document.getElementById('connectionStatus').classList.remove('visible');
             showToast('Analysis completed. Check Reports.', 'success');
         })
         .catch(() => showToast('Failed to stop analysis', 'error'));
@@ -126,6 +159,50 @@ function updateStatus(active) {
     const txt = document.getElementById('statusText');
     if (active) { ind.classList.add('active');    txt.textContent = 'Analyzing'; }
     else        { ind.classList.remove('active'); txt.textContent = 'Stopped';   }
+}
+
+// ── Session Timer ─────────────────────────────────────────────────────────────
+function startSessionTimer() {
+    const timerEl = document.getElementById('sessionTimer');
+    const timerValue = document.getElementById('timerValue');
+    timerEl.classList.add('active');
+    
+    _sessionTimerInterval = setInterval(() => {
+        if (!_sessionStartTime) return;
+        const elapsed = Math.floor((Date.now() - _sessionStartTime) / 1000);
+        const h = Math.floor(elapsed / 3600).toString().padStart(2, '0');
+        const m = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
+        const s = (elapsed % 60).toString().padStart(2, '0');
+        timerValue.textContent = `${h}:${m}:${s}`;
+    }, 1000);
+}
+
+// ── Connection Status ─────────────────────────────────────────────────────────
+function setConnectionStatus(state) {
+    _connectionState = state;
+    const el = document.getElementById('connectionStatus');
+    const text = document.getElementById('connectionText');
+    const dot = el.querySelector('.connection-dot');
+    
+    el.classList.remove('connected', 'disconnected', 'connecting');
+    el.classList.add(state);
+    el.classList.add('visible');
+    
+    const statusText = {
+        'connected': 'Connected',
+        'disconnected': 'Disconnected',
+        'connecting': 'Connecting...'
+    };
+    text.textContent = statusText[state] || state;
+    
+    if (state === 'disconnected' && isAnalyzing) {
+        _connectionRetryCount++;
+        if (_connectionRetryCount < 3) {
+            setTimeout(() => setConnectionStatus('connecting'), 2000);
+        }
+    } else if (state === 'connected') {
+        _connectionRetryCount = 0;
+    }
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
@@ -169,10 +246,33 @@ function loadCameraSettings() {
 }
 
 function saveCameraSettings() {
-    const rtspUrl = document.getElementById('rtspUrl').value.trim();
-    if (!rtspUrl) { showSettingsStatus('RTSP URL cannot be empty', 'error'); return; }
-    if (!rtspUrl.startsWith('rtsp://')) { showSettingsStatus('Must start with rtsp://', 'error'); return; }
-    if (isAnalyzing) { showSettingsStatus('Stop analysis before changing settings', 'error'); return; }
+    const rtspInput = document.getElementById('rtspUrl');
+    const rtspError = document.getElementById('rtspError');
+    const rtspUrl = rtspInput.value.trim();
+    
+    // Clear previous errors
+    rtspInput.classList.remove('error');
+    rtspError.textContent = '';
+    rtspError.style.display = 'none';
+    
+    if (!rtspUrl) {
+        rtspInput.classList.add('error');
+        rtspError.textContent = 'RTSP URL cannot be empty';
+        rtspError.style.display = 'block';
+        showSettingsStatus('RTSP URL cannot be empty', 'error');
+        return;
+    }
+    if (!rtspUrl.startsWith('rtsp://')) {
+        rtspInput.classList.add('error');
+        rtspError.textContent = 'URL must start with rtsp://';
+        rtspError.style.display = 'block';
+        showSettingsStatus('Must start with rtsp://', 'error');
+        return;
+    }
+    if (isAnalyzing) {
+        showSettingsStatus('Stop analysis before changing settings', 'error');
+        return;
+    }
 
     showSettingsStatus('Saving…', 'info');
     fetch('/api/settings/camera', {
@@ -182,10 +282,20 @@ function saveCameraSettings() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success) { showSettingsStatus('✓ Settings saved!', 'success'); showToast('Camera settings updated', 'success'); }
-        else               showSettingsStatus('✗ ' + (data.error || 'Failed'), 'error');
+        if (data.success) { 
+            showSettingsStatus('✓ Settings saved!', 'success'); 
+            showToast('Camera settings updated', 'success'); 
+        }
+        else {
+            rtspInput.classList.add('error');
+            rtspError.textContent = data.error || 'Failed to save';
+            rtspError.style.display = 'block';
+            showSettingsStatus('✗ ' + (data.error || 'Failed'), 'error');
+        }
     })
-    .catch(() => showSettingsStatus('✗ Network error. Try again.', 'error'));
+    .catch(() => {
+        showSettingsStatus('✗ Network error. Try again.', 'error');
+    });
 }
 
 function resetCameraSettings() {
@@ -249,14 +359,14 @@ function displaySessions(sessions) {
 
         card.innerHTML = `
             <div class="session-header">
-                <div class="session-title"><strong>Session #${s.id}</strong>${badge}</div>
+                <div class="session-title"><strong>Session #${sanitizeHTML(String(s.id))}</strong>${badge}</div>
                 <button class="btn-delete" onclick="deleteSessionPrompt(${s.id},event)" title="Delete">🗑️</button>
             </div>
             <div class="session-info">
                 <div class="info-row"><span class="info-label">Started:</span><span>${formatDateTime(start)}</span></div>
                 ${end ? `<div class="info-row"><span class="info-label">Duration:</span><span>${dur} min</span></div>` : ''}
                 <div class="info-row"><span class="info-label">Frames:</span><span>${s.total_frames || 0}</span></div>
-                ${s.dominant_emotion ? `<div class="info-row"><span class="info-label">Dominant:</span><span>${domIcon} ${s.dominant_emotion}</span></div>` : ''}
+                ${s.dominant_emotion ? `<div class="info-row"><span class="info-label">Dominant:</span><span>${domIcon} ${sanitizeHTML(s.dominant_emotion)}</span></div>` : ''}
             </div>`;
         card.onclick = e => { if (!e.target.closest('.btn-delete')) selectSession(s.id); };
         list.appendChild(card);
