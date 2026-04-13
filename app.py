@@ -19,7 +19,7 @@ app = Flask(__name__)
 # Export these before running:
 #   export RTSP_URL="rtsp://user:pass@ip:port/profile0"
 # Falls back to a safe placeholder if not set.
-_DEFAULT_RTSP = os.environ.get("RTSP_URL", "rtsp://admin:admin123456@192.168.1.11:8554/profile0")
+_DEFAULT_RTSP = os.environ.get("RTSP_URL", "rtsp://admin:admin123456@192.168.1.15:8554/profile0")
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 MODELS_DIR        = "models"

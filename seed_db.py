@@ -1,6 +1,6 @@
 """
-seed_db.py — Inserts a realistic demo session into sentivision.db.
-Assigns the next available session ID (MAX + 1) so real sessions are never overwritten.
+seed_db.py — Inserts 4 demo sessions (51–54) into sentivision.db.
+Total: 32 customers across all sessions.
 Usage:  python seed_db.py
 """
 
@@ -11,7 +11,6 @@ import os
 
 DB_PATH = 'sentivision.db'
 
-# ── Track-ID → 3-letter alias (mirrors app.py / script.js logic) ──────────────
 _ID_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'   # 23 chars, no I/O/W
 
 def track_id_to_alias(tid: int) -> str:
@@ -23,60 +22,117 @@ def track_id_to_alias(tid: int) -> str:
         _ID_LETTERS[i % base]
     )
 
+# ── Emotion count templates by dominant emotion ────────────────────────────────
+# counts: [Happy, Surprise, Sad, Fear, Angry, Disgust]
+def make_counts(dominant: str) -> list:
+    templates = {
+        'Happy':    [80, 20,  5,  2,  3,  1],
+        'Surprise': [15, 90, 10,  8,  5,  3],
+        'Sad':      [10,  3, 95, 15,  8,  5],
+        'Fear':     [ 5,  8, 20, 85,  6,  4],
+        'Angry':    [ 5,  3, 15,  8, 90, 25],
+        'Disgust':  [ 4,  2, 12,  6, 20, 80],
+    }
+    base = templates[dominant][:]
+    # Add small random noise so each person feels unique
+    return [max(0, v + random.randint(-3, 3)) for v in base]
 
-def seed_data():
-    if not os.path.exists(DB_PATH):
-        print(f"[seed] Database '{DB_PATH}' not found. Run the app once to initialise it.")
+
+# ── Session definitions ────────────────────────────────────────────────────────
+SESSIONS = [
+    {
+        'id':         51,
+        'start':      datetime(2026, 4, 13, 18, 30, 0),   # April 13, 6:30 PM
+        'duration':   36,                                   # minutes → ends 7:06 PM
+        'customers': [
+            (1,  'Sad'),
+            (2,  'Sad'),
+            (3,  'Sad'),
+            (4,  'Sad'),
+            (5,  'Sad'),
+            (6,  'Angry'),
+            (7,  'Angry'),
+            (8,  'Happy'),
+            (9,  'Happy'),
+            (10, 'Happy'),
+        ],
+    },
+    {
+        'id':         52,
+        'start':      datetime(2026, 4, 15, 18, 30, 0),   # April 15, 6:30 PM
+        'duration':   43,                                   # ends 7:13 PM
+        'customers': [
+            (1, 'Sad'),
+            (2, 'Happy'),
+            (3, 'Happy'),
+            (4, 'Sad'),
+            (5, 'Angry'),
+            (6, 'Sad'),
+        ],
+    },
+    {
+        'id':         53,
+        'start':      datetime(2026, 4, 16, 19, 0, 0),    # April 16, 7:00 PM
+        'duration':   42,                                   # ends 7:42 PM
+        'customers': [
+            (1, 'Angry'),
+            (2, 'Surprise'),
+            (3, 'Sad'),
+            (4, 'Happy'),
+        ],
+    },
+    {
+        'id':         54,
+        'start':      datetime(2026, 4, 17, 19, 20, 0),   # April 17, 7:20 PM
+        'duration':   80,                                   # ends 8:40 PM
+        'customers': [
+            (1,  'Sad'),
+            (2,  'Sad'),
+            (3,  'Angry'),
+            (4,  'Happy'),
+            (5,  'Surprise'),
+            (6,  'Sad'),
+            (7,  'Sad'),
+            (8,  'Happy'),
+            (9,  'Angry'),
+            (10, 'Angry'),
+            (11, 'Angry'),
+            (12, 'Angry'),
+        ],
+    },
+]
+
+
+def seed_session(cursor, session_def: dict):
+    sid           = session_def['id']
+    start_time    = session_def['start']
+    duration_mins = session_def['duration']
+    end_time      = start_time + timedelta(minutes=duration_mins)
+    total_frames  = duration_mins * 60
+    customers     = session_def['customers']
+    emotions_list = ['Happy', 'Surprise', 'Sad', 'Fear', 'Angry', 'Disgust']
+
+    # ── Guard: skip if already exists ─────────────────────────────────────────
+    cursor.execute("SELECT id FROM sessions WHERE id = ?", (sid,))
+    if cursor.fetchone():
+        print(f"[seed] Session #{sid} already exists — skipping.")
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    cursor = conn.cursor()
-
-    # ── Pick a safe session ID ─────────────────────────────────────────────────
-    cursor.execute("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM sessions")
-    session_id = cursor.fetchone()['next_id']
-    print(f"[seed] Creating demo session #{session_id}")
-
-    # ── Session timing ─────────────────────────────────────────────────────────
-    end_time      = datetime.now() - timedelta(hours=random.randint(1, 48),
-                                               minutes=random.randint(0, 59))
-    duration_mins = random.randint(45, 75)
-    start_time    = end_time - timedelta(minutes=duration_mins)
-    total_frames  = duration_mins * 60
+    print(f"[seed] Creating Session #{sid}  |  {start_time}  →  {end_time}")
 
     cursor.execute(
         "INSERT INTO sessions (id, start_time, end_time, total_frames, status) "
         "VALUES (?, ?, ?, ?, 'completed')",
-        (session_id, start_time, end_time, total_frames)
+        (sid, start_time, end_time, total_frames)
     )
-
-    # ── Customer profiles ──────────────────────────────────────────────────────
-    # counts: [Happy, Surprise, Sad, Fear, Angry, Disgust]
-    emotions_list = ['Happy', 'Surprise', 'Sad', 'Fear', 'Angry', 'Disgust']
-
-    profiles = [
-        {'person_number': 1,  'counts': [30,  2,  120, 10,  5,  2]},   # Sad-dominant
-        {'person_number': 2,  'counts': [2,  1,  120,  5, 12,  8]},
-        {'person_number': 3,  'counts': [10, 5,  200, 20, 15,  5]},
-        {'person_number': 4,  'counts': [0,  0,  110, 10,  2,  1]},
-        {'person_number': 5,  'counts': [8,  4,  180, 15, 10, 10]},
-        {'person_number': 6,  'counts': [2,  1,   20, 10, 90, 30]},   # Angry-dominant
-        {'person_number': 7,  'counts': [5,  5,   15,  5, 75, 40]},
-        {'person_number': 8,  'counts': [60, 20,   5,  2,  1,  0]},   # Happy-dominant
-        {'person_number': 9,  'counts': [50, 15,  10,  5,  5,  2]},
-        {'person_number': 10, 'counts': [70, 25,   2,  1,  0,  0]},
-    ]
 
     all_totals = [0] * 6
 
-    for p in profiles:
-        counts     = p['counts']
-        person_num = p['person_number']
+    for person_num, dominant in customers:
+        counts = make_counts(dominant)
 
         offset_start = random.randint(0, max(0, duration_mins - 10))
-        offset_end   = offset_start + random.randint(5, min(45, duration_mins - offset_start))
+        offset_end   = offset_start + random.randint(5, min(30, duration_mins - offset_start))
         win_start    = start_time + timedelta(minutes=offset_start)
         win_end      = start_time + timedelta(minutes=offset_end)
         window_secs  = max(int((win_end - win_start).total_seconds()), 1)
@@ -86,7 +142,7 @@ def seed_data():
             ename = emotions_list[idx]
             for _ in range(cnt):
                 ts = win_start + timedelta(seconds=random.randint(0, window_secs - 1))
-                rows.append((session_id, ts, person_num, ename))
+                rows.append((sid, ts, person_num, ename))
         random.shuffle(rows)
 
         cursor.executemany(
@@ -97,19 +153,19 @@ def seed_data():
         for i in range(6):
             all_totals[i] += counts[i]
 
-    # ── Frame emotions (drives Top Emotions & trend charts) ────────────────────
-    frame_interval = int((end_time - start_time).total_seconds() / 100)
+    # ── Frame emotions ─────────────────────────────────────────────────────────
+    frame_interval = max(1, int((end_time - start_time).total_seconds() / 100))
+    dominant_idx   = all_totals.index(max(all_totals))
     for i in range(100):
-        ft = start_time + timedelta(seconds=i * frame_interval)
+        ft   = start_time + timedelta(seconds=i * frame_interval)
+        vals = [random.randint(0, 1)] * 6
+        vals[dominant_idx] = random.randint(3, 8)
         cursor.execute(
             "INSERT INTO frame_emotions "
             "(session_id, timestamp, happy, surprise, sad, fear, angry, disgust, total_persons) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, ft,
-             random.randint(0, 2), random.randint(0, 1),
-             random.randint(5, 12), random.randint(0, 2),
-             random.randint(0, 3), random.randint(0, 1),
-             random.randint(1, 5))
+            (sid, ft, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5],
+             random.randint(1, len(customers)))
         )
 
     # ── Overall stats ──────────────────────────────────────────────────────────
@@ -124,7 +180,7 @@ def seed_data():
         " total_angry, total_disgust, total_detections, dominant_emotion, "
         " positive_percentage, negative_percentage) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (session_id,
+        (sid,
          all_totals[0], all_totals[1], all_totals[2],
          all_totals[3], all_totals[4], all_totals[5],
          grand_total, grand_dom,
@@ -140,26 +196,43 @@ def seed_data():
             "(session_id, minute_mark, avg_happy, avg_surprise, avg_sad, "
             " avg_fear, avg_angry, avg_disgust, avg_total_persons, frame_count) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, mt,
+            (sid, mt,
              random.uniform(0, 5),  random.uniform(0, 2),
              random.uniform(0, 10), random.uniform(0, 3),
              random.uniform(0, 4),  random.uniform(0, 2),
-             random.uniform(1, 5),  10)
+             random.uniform(1, len(customers)), 10)
         )
+
+    print(f"       Customers : {len(customers)}")
+    print(f"       Aliases   : {', '.join(track_id_to_alias(p) for p, _ in customers)}")
+    print(f"       Totals    → Happy:{all_totals[0]}  Surprise:{all_totals[1]}  "
+          f"Sad:{all_totals[2]}  Fear:{all_totals[3]}  "
+          f"Angry:{all_totals[4]}  Disgust:{all_totals[5]}")
+    print(f"       Dominant  : {grand_dom}  |  "
+          f"Positive: {round(grand_pos/grand_total*100,1)}%  "
+          f"Negative: {round(grand_neg/grand_total*100,1)}%")
+
+
+def seed_data():
+    if not os.path.exists(DB_PATH):
+        print(f"[seed] Database '{DB_PATH}' not found. Run the app once to initialise it.")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    cursor = conn.cursor()
+
+    total_customers = sum(len(s['customers']) for s in SESSIONS)
+    print(f"[seed] Seeding {len(SESSIONS)} sessions — {total_customers} customers total\n")
+
+    for session_def in SESSIONS:
+        seed_session(cursor, session_def)
+        print()
 
     conn.commit()
     conn.close()
-
-    print(f"[seed] Session #{session_id} seeded with {len(profiles)} customers.")
-    print(f"       Totals  → Happy:{all_totals[0]}  Surprise:{all_totals[1]}  "
-          f"Sad:{all_totals[2]}  Fear:{all_totals[3]}  "
-          f"Angry:{all_totals[4]}  Disgust:{all_totals[5]}")
-    print(f"       Dominant: {grand_dom}  |  "
-          f"Positive: {round(grand_pos/grand_total*100,1)}%  "
-          f"Negative: {round(grand_neg/grand_total*100,1)}%")
-    print(f"       Customer aliases:")
-    for p in profiles:
-        print(f"         Person #{p['person_number']:>2} → {track_id_to_alias(p['person_number'])}")
+    print("[seed] Done! ✓")
 
 
 if __name__ == '__main__':
